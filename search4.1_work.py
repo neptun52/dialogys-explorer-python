@@ -6,15 +6,43 @@
 import sqlite3
 import os
 import sys
+import textwrap
 
 # ------------------------------------------------------------
 # Настройка кодировки консоли Windows
 # ------------------------------------------------------------
 
-try:
-    os.system("chcp 65001 > nul")
-except:
-    pass
+#try:
+#    os.system("chcp 65001 > nul")
+#except:
+#    pass
+os.system("chcp 65001 > nul")
+
+DB = "dialogys.db"
+
+conn = sqlite3.connect(DB)
+conn.row_factory = sqlite3.Row
+cur = conn.cursor()
+
+# ===== ВРЕМЕННАЯ ПРОВЕРКА СТРУКТУРЫ БАЗЫ 1=====
+#print("\nПервые 10 записей базы:\n")
+
+#cur.execute("""
+#SELECT doc_type, numero, titre
+#FROM documents
+#LIMIT 10
+#""")
+
+#for row in cur.fetchall():
+#    print(row["doc_type"], row["numero"], row["titre"])
+
+#input("\nНажмите Enter...")
+# ===== КОНЕЦ ВРЕМЕННОЙ ПРОВЕРКИ 1=====
+
+# ===== ВРЕМЕННАЯ ПРОВЕРКА СТРУКТУРЫ БАЗЫ =====
+#for row in cur.execute("PRAGMA table_info(documents)"):
+#    print(row)
+# ===== КОНЕЦ ВРЕМЕННОЙ ПРОВЕРКИ =====
 
 # ------------------------------------------------------------
 # Основные параметры программы
@@ -126,37 +154,39 @@ def search_documents(text, doc_filter=None):
     if doc_filter is None:
 
         sql = """
-        SELECT
+        SELECT DISTINCT 
             doc_type,
             numero,
-            titre,
-            element_name
+            titre
         FROM documents
         WHERE
-            titre LIKE ?
+            numero LIKE ?
+            OR titre LIKE ?
             OR element_name LIKE ?
         ORDER BY numero
         """
 
         params = (
             "%" + text + "%",
+            "%" + text + "%",
             "%" + text + "%"
+            
         )
 
     else:
 
         sql = """
-        SELECT
+        SELECT DISTINCT
             doc_type,
             numero,
-            titre,
-            element_name
+            titre
         FROM documents
         WHERE
             doc_type = ?
             AND
             (
-                titre LIKE ?
+                numero LIKE ?
+                OR titre LIKE ?
                 OR element_name LIKE ?
             )
         ORDER BY numero
@@ -165,10 +195,206 @@ def search_documents(text, doc_filter=None):
         params = (
             doc_filter,
             "%" + text + "%",
+            "%" + text + "%",
             "%" + text + "%"
         )
 
     cur.execute(sql, params)
 
     return cur.fetchall()
-# =================== КОНЕЦ ЧАСТИ 3 ===================
+# ============================================================
+# ЧАСТЬ 4.2
+# Главный цикл программы
+# ============================================================
+# ============================================================
+# Просмотр результатов поиска
+# ============================================================
+
+def browse_results(rows):
+
+    offset = 0
+    page_size = 20
+
+    while True:
+
+        selected_rows = rows[offset:offset + page_size]
+
+        if not selected_rows:
+            print("\nБольше документов нет.")
+            offset = 0
+            continue
+
+        print()
+        print("№   База Документ      Описание")
+        print("-" * 90)
+
+        for i, row in enumerate(selected_rows, start=1):
+
+            title_lines = textwrap.wrap(row["titre"], width=55)
+
+            print(
+                f"{i:2}. "
+                f"{row['doc_type']:2}   "
+                f"{row['numero']:<12} "
+                f"{title_lines[0]}"
+            )
+
+            for line in title_lines[1:]:
+                print(" " * 20 + line)
+
+        print()
+        print("Enter - следующие 20")
+        print("0 - новый поиск")
+
+        choice = input("Выберите документ: ").strip()
+
+        if choice == "":
+            offset += page_size
+            continue
+
+        if choice == "0":
+            return None 
+
+        if choice.isdigit():
+
+            number = int(choice)
+
+            if 1 <= number <= len(selected_rows):
+                return selected_rows[number - 1]
+
+        print("Неверный выбор.")# конец вставки
+# ============================================================
+# Получение разделов документа
+# ============================================================
+
+def get_document_elements(doc_type, numero):
+
+    sql = """
+    SELECT DISTINCT
+        element_name
+    FROM documents
+    WHERE
+        doc_type = ?
+        AND numero = ?
+    ORDER BY element_name
+    """
+
+    cur.execute(sql, (doc_type, numero))
+
+    return cur.fetchall()
+
+# ============================================================
+# Просмотр разделов документа
+# ============================================================
+
+def browse_elements(elements):
+
+    print()
+    print("Разделы документа")
+    print("-" * 70)
+
+    for i, row in enumerate(elements, start=1):
+        print(f"{i:2}. {row['element_name']}")
+
+    print()
+    print("0 - Назад")
+
+    while True:
+
+        choice = input("Выберите раздел: ").strip()
+
+        if choice == "0":
+            return None
+
+        if choice.isdigit():
+
+            number = int(choice)
+
+            if 1 <= number <= len(elements):
+                return elements[number - 1]
+
+        print("Неверный выбор.")
+# ============================================================
+# Получение полной информации о разделе
+# ============================================================
+
+def get_element_info(doc_type, numero, element_name):
+
+    sql = """
+    SELECT *
+    FROM documents
+    WHERE
+        doc_type = ?
+        AND numero = ?
+        AND element_name = ?
+    LIMIT 1
+    """
+
+    cur.execute(sql, (doc_type, numero, element_name))
+
+    return cur.fetchone()
+def main():
+
+    while True:
+
+        # os.system("cls")
+
+        print_header()
+
+        doc_filter = choose_document_type()
+
+        if doc_filter == "EXIT":
+            break
+
+        print()
+
+        text = input("Что искать: ").strip()
+
+        if text == "":
+            continue
+
+        rows = search_documents(text, doc_filter)
+
+        print()
+
+        if len(rows) == 0:
+
+            print("Ничего не найдено.")
+            input("\nНажмите Enter...")
+            continue
+
+        print(f"Найдено документов: {len(rows)}")
+
+        selected = browse_results(rows)
+
+        if selected is None:
+            continue
+
+        elements = get_document_elements(
+            selected["doc_type"],
+            selected["numero"]
+        )
+
+        element = browse_elements(elements)
+
+        if element is None:
+            continue
+        info = get_element_info(
+            selected["doc_type"],
+            selected["numero"],
+            element["element_name"]
+        )
+
+        print()
+        print("=" * 70)
+        print("Все поля записи")
+        print("=" * 70)
+
+        for key in info.keys():
+            print(f"{key:20} : {info[key]}")
+
+        input("\nНажмите Enter...")
+
+
+if __name__ == "__main__":
+    main()
